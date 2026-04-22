@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Contracts</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        h1 { color: #333; }
+        .contract { border: 1px solid #ddd; padding: 15px; margin: 10px 0; border-radius: 5px; }
+        .contract-name { font-weight: bold; font-size: 1.2em; }
+        .provider { color: #666; margin-bottom: 10px; }
+        .field { margin: 5px 0; padding-left: 15px; }
+        .field.private { color: #e74c3c; }
+        .field.public { color: #27ae60; }
+        .visibility { font-size: 0.8em; text-transform: uppercase; }
+    </style>
+</head>
+<body>
+    <h1>Contracts</h1>
+    <div id="contracts">Loading...</div>
+    <script>
+        async function loadContracts() {
+            const response = await fetch('/contracts');
+            const contracts = await response.json();
+            const container = document.getElementById('contracts');
+            container.innerHTML = contracts.map(c => `
+                <div class="contract">
+                    <div class="contract-name">${c.name}</div>
+                    <div class="provider">Provider: ${c.provider_name}</div>
+                    <div class="fields">
+                        ${c.fields.map(f => `
+                            <div class="field ${f.visibility}">
+                                <span class="visibility">${f.visibility}</span>: ${f.name} = ${f.value || '(empty)'}
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `).join('');
+        }
+        loadContracts();
+    </script>
+</body>
+</html>
