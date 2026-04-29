@@ -1,0 +1,42 @@
+[
+  { "model": "provider_app.provider", "pk": 1, "fields": { "name": "AWS" } },
+  { "model": "provider_app.provider", "pk": 2, "fields": { "name": "Azure" } },
+  {
+    "model": "provider_app.providerform",
+    "pk": 1,
+    "fields": {
+      "provider": 1,
+      "name": "Infrastructure Compliance",
+      "description": "POC form for provider compliance data."
+    }
+  },
+  {
+    "model": "provider_app.providerform",
+    "pk": 2,
+    "fields": {
+      "provider": 2,
+      "name": "Tenant Security Form",
+      "description": "POC form for provider security posture."
+    }
+  },
+  {
+    "model": "provider_app.question",
+    "pk": 1,
+    "fields": { "form": 1, "label": "Support region", "answer": "eu-west-1", "is_public": true, "order": 1 }
+  },
+  {
+    "model": "provider_app.question",
+    "pk": 2,
+    "fields": { "form": 1, "label": "Internal API key", "answer": "aws-secret-key-001", "is_public": false, "order": 2 }
+  },
+  {
+    "model": "provider_app.question",
+    "pk": 3,
+    "fields": { "form": 2, "label": "Tenant reference", "answer": "tenant-abc", "is_public": false, "order": 1 }
+  },
+  {
+    "model": "provider_app.question",
+    "pk": 4,
+    "fields": { "form": 2, "label": "Public contact", "answer": "security@azure.example", "is_public": true, "order": 2 }
+  }
+]

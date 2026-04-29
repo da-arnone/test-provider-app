@@ -1,0 +1,7 @@
+Metadata-Version: 2.4
+Name: provider-app
+Version: 0.1.0
+Summary: DDQ Ecosystem - provider-app (providers, forms, and answers)
+Requires-Python: >=3.10
+Requires-Dist: Django<6.0,>=4.2
+Requires-Dist: djangorestframework>=3.14

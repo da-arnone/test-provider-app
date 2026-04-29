@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "provider-app"
+version = "0.1.0"
+description = "DDQ Ecosystem - provider-app (providers, forms, and answers)"
+requires-python = ">=3.10"
+dependencies = [
+    "Django>=4.2,<6.0",
+    "djangorestframework>=3.14",
+]
+
+[tool.setuptools.packages.find]
+include = ["provider_app*"]
