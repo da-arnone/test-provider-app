@@ -3,7 +3,12 @@ from rest_framework.views import APIView
 
 from ..models import Provider, ProviderForm
 from ..serializers import ProviderFormPublicSerializer, ProviderSerializer
-from ..services.auth_client import authorize_request, extract_bearer_token, validate_token
+from ..services.auth_client import (
+    authorize_request,
+    extract_bearer_token,
+    validate_token,
+    whois,
+)
 
 
 def _provider_contexts(provider_id: int) -> list[str]:
@@ -14,6 +19,9 @@ def _authorize_provider_third(token: str, provider_id: int) -> bool:
     for context in _provider_contexts(provider_id):
         if authorize_request(token, required_role="provider-third", context=context):
             return True
+    # Fallback for global provider-third profile with no provider context.
+    if authorize_request(token, required_role="provider-third", context=None):
+        return True
     return False
 
 
@@ -40,7 +48,20 @@ class PublicProviderListView(APIView):
         if not claims:
             return Response({"detail": "invalid token"}, status=401)
 
+        session = whois(token)
+        profiles = (session or {}).get("profiles") or []
+        has_provider_third_profile = any(
+            profile.get("appScope") == "provider-app"
+            and profile.get("role") == "provider-third"
+            for profile in profiles
+        )
+
         providers = Provider.objects.order_by("id")
+        if has_provider_third_profile and authorize_request(
+            token, required_role="provider-third", context=None
+        ):
+            return Response(ProviderSerializer(providers, many=True).data)
+
         visible_provider_ids = []
         for provider in providers:
             if _authorize_provider_third(token, provider.id):
