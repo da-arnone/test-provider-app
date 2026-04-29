@@ -13,6 +13,14 @@ Provider management component with public/private question visibility.
 - App: `/api/provider/` (provider-user/admin; sees public + private questions)
 - Third: `/third/provider/` (consultation/view-only; only public questions)
 
+Third-party consultation endpoints:
+
+- `GET /third/provider/providers/`
+- `GET /third/provider/providers/<id>/`
+- `GET /third/provider/providers/<id>/forms/`
+- `GET /third/provider/providers/<id>/answers/`
+- `GET /third/provider/forms/<id>/`
+
 ## Run backend
 
 ```bash
