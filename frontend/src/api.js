@@ -24,6 +24,13 @@ export const api = {
     }),
   session: (token) => request("/api/provider/auth/session/", { token }),
   forms: (token) => request("/api/provider/forms/", { token }),
+  incomingSubmissions: (token) => request("/api/provider/subscriptions/incoming/", { token }),
+  decideIncomingSubmission: (id, body, token) =>
+    request(`/api/provider/subscriptions/incoming/${id}/decision/`, {
+      method: "POST",
+      token,
+      body: JSON.stringify(body),
+    }),
   updateQuestionAnswer: (id, answer, token) =>
     request(`/api/provider/questions/${id}/answer/`, {
       method: "PATCH",
@@ -82,5 +89,6 @@ export const api = {
       method: "DELETE",
       token,
     }),
-  publicFormsByProvider: (providerId) => request(`/third/provider/providers/${providerId}/forms/`),
+  publicFormsByProvider: (providerId, token) =>
+    request(`/api/provider/consultation/providers/${providerId}/forms/`, { token }),
 };

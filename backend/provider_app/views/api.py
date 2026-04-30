@@ -4,7 +4,11 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from ..models import ProviderForm, Question
-from ..serializers import ProviderFormSerializer, QuestionAnswerUpdateSerializer
+from ..serializers import (
+    ProviderFormPublicSerializer,
+    ProviderFormSerializer,
+    QuestionAnswerUpdateSerializer,
+)
 from ..services.auth_client import (
     ALLOWED_PROVIDER_ROLES,
     APP_SCOPE,
@@ -16,6 +20,7 @@ from ..services.auth_client import (
     validate_token,
     whois,
 )
+from ..services.subscription_client import decide_incoming_submission, list_incoming_submissions
 
 
 def _authorized_provider_ids(request):
@@ -130,6 +135,19 @@ class FormDetailView(APIView):
         return Response(ProviderFormSerializer(form).data)
 
 
+class PublicProviderFormsView(APIView):
+    """UI-facing public-only view for a single provider."""
+
+    def get(self, request, provider_id):
+        _token, provider_ids, error = _authorized_provider_ids(request)
+        if error:
+            return error
+        if provider_id not in provider_ids:
+            return Response({"detail": "provider not allowed"}, status=403)
+        forms = ProviderForm.objects.filter(provider_id=provider_id).prefetch_related("questions")
+        return Response(ProviderFormPublicSerializer(forms, many=True).data)
+
+
 class QuestionAnswerUpdateView(APIView):
     def patch(self, request, pk):
         _token, provider_ids, error = _authorized_provider_ids(request)
@@ -157,3 +175,88 @@ class QuestionAnswerUpdateView(APIView):
                 "order": question.order,
             }
         )
+
+
+class IncomingSubmissionListView(APIView):
+    """
+    List incoming subscription submissions where provider-app is the submitee.
+
+    Provider users only see submissions targeting providers they are authorized for.
+    """
+
+    def get(self, request):
+        token, provider_ids, error = _authorized_provider_ids(request)
+        if error:
+            return error
+
+        requested_provider_id = request.GET.get("provider_id")
+        target_ids = provider_ids
+        if requested_provider_id not in (None, ""):
+            try:
+                one_provider_id = int(requested_provider_id)
+            except (TypeError, ValueError):
+                return Response({"detail": "provider_id must be an integer"}, status=400)
+            if one_provider_id not in provider_ids:
+                return Response({"detail": "provider not allowed"}, status=403)
+            target_ids = [one_provider_id]
+
+        merged: list[dict] = []
+        for provider_id in target_ids:
+            payload, status_code, detail = list_incoming_submissions(token, provider_id=provider_id)
+            if status_code:
+                return Response(
+                    {"detail": detail or "failed to fetch incoming submissions"},
+                    status=status_code,
+                )
+            if isinstance(payload, list):
+                merged.extend(payload)
+
+        merged.sort(key=lambda row: row.get("id", 0), reverse=True)
+        return Response(merged)
+
+
+class IncomingSubmissionDecisionView(APIView):
+    """Provider-owned processing action over incoming submissions."""
+
+    def post(self, request, pk):
+        token, provider_ids, error = _authorized_provider_ids(request)
+        if error:
+            return error
+
+        provider_id = request.data.get("provider_id")
+        if provider_id is None:
+            return Response({"detail": "provider_id is required"}, status=400)
+        try:
+            provider_id_int = int(provider_id)
+        except (TypeError, ValueError):
+            return Response({"detail": "provider_id must be an integer"}, status=400)
+        if provider_id_int not in provider_ids:
+            return Response({"detail": "provider not allowed"}, status=403)
+
+        decision = request.data.get("decision")
+        if decision not in {"handled", "rejected"}:
+            return Response({"detail": "decision must be one of: handled, rejected"}, status=400)
+
+        mapped_status = "handled" if decision == "handled" else "rejected"
+        decision_note = request.data.get("decision_note", "")
+        decision_metadata = request.data.get("decision_metadata")
+        if decision_metadata is not None and not isinstance(decision_metadata, dict):
+            return Response({"detail": "decision_metadata must be an object"}, status=400)
+        if decision_metadata is None:
+            decision_metadata = {}
+        decision_metadata.setdefault("provider_id", provider_id_int)
+        decision_metadata.setdefault("decision", decision)
+
+        payload, status_code, detail = decide_incoming_submission(
+            token,
+            submission_id=pk,
+            status=mapped_status,
+            decision_note=decision_note,
+            decision_metadata=decision_metadata,
+        )
+        if status_code:
+            return Response(
+                {"detail": detail or "failed to process incoming submission"},
+                status=status_code,
+            )
+        return Response(payload)

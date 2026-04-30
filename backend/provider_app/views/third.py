@@ -2,13 +2,14 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from ..models import Provider, ProviderForm
-from ..serializers import ProviderFormPublicSerializer, ProviderSerializer
+from ..serializers import ProviderFormPublicSerializer, ProviderSerializer, ProviderThirdDetailSerializer
 from ..services.auth_client import (
     authorize_request,
     extract_bearer_token,
     validate_token,
     whois,
 )
+from ..services.subscription_client import has_handled_org_subscription
 
 
 def _provider_contexts(provider_id: int) -> list[str]:
@@ -25,6 +26,38 @@ def _authorize_provider_third(token: str, provider_id: int) -> bool:
     return False
 
 
+def _parse_context_entity_id(context) -> int | None:
+    if isinstance(context, int):
+        return context
+    if isinstance(context, str):
+        digits = "".join(ch for ch in context if ch.isdigit())
+        if digits:
+            return int(digits)
+    return None
+
+
+def _organization_ids_from_profiles(profiles: list[dict]) -> list[int]:
+    org_ids: list[int] = []
+    for profile in profiles:
+        if profile.get("appScope") != "org-app":
+            continue
+        org_id = _parse_context_entity_id(profile.get("context"))
+        if org_id is not None:
+            org_ids.append(org_id)
+    return sorted(set(org_ids))
+
+
+def _can_view_private_data(token: str, provider_id: int) -> bool:
+    session = whois(token)
+    profiles = (session or {}).get("profiles") or []
+    organization_ids = _organization_ids_from_profiles(profiles)
+    return has_handled_org_subscription(
+        token,
+        provider_id=provider_id,
+        organization_ids=organization_ids,
+    )
+
+
 class PublicProviderFormsView(APIView):
     def get(self, request, provider_id):
         token = extract_bearer_token(request)
@@ -35,8 +68,15 @@ class PublicProviderFormsView(APIView):
             return Response({"detail": "invalid token"}, status=401)
         if not _authorize_provider_third(token, provider_id):
             return Response({"detail": "forbidden for third-party consultation"}, status=403)
+        include_private = _can_view_private_data(token, provider_id)
         forms = ProviderForm.objects.filter(provider_id=provider_id).prefetch_related("questions")
-        return Response(ProviderFormPublicSerializer(forms, many=True).data)
+        return Response(
+            ProviderFormPublicSerializer(
+                forms,
+                many=True,
+                context={"include_private": include_private},
+            ).data
+        )
 
 
 class PublicProviderListView(APIView):
@@ -80,11 +120,14 @@ class PublicProviderDetailView(APIView):
             return Response({"detail": "invalid token"}, status=401)
         if not _authorize_provider_third(token, provider_id):
             return Response({"detail": "forbidden for third-party consultation"}, status=403)
+        include_private = _can_view_private_data(token, provider_id)
         try:
-            provider = Provider.objects.get(pk=provider_id)
+            provider = Provider.objects.prefetch_related("forms__questions").get(pk=provider_id)
         except Provider.DoesNotExist:
             return Response({"detail": "provider not found"}, status=404)
-        return Response(ProviderSerializer(provider).data)
+        payload = ProviderThirdDetailSerializer(provider).data
+        payload["private_access_granted"] = include_private
+        return Response(payload)
 
 
 class PublicProviderAnswersView(APIView):
@@ -97,12 +140,15 @@ class PublicProviderAnswersView(APIView):
             return Response({"detail": "invalid token"}, status=401)
         if not _authorize_provider_third(token, provider_id):
             return Response({"detail": "forbidden for third-party consultation"}, status=403)
+        include_private = _can_view_private_data(token, provider_id)
         forms = ProviderForm.objects.filter(provider_id=provider_id).prefetch_related("questions")
         answers = []
         for form in forms:
-            for question in form.questions.filter(is_public=True):
+            question_qs = form.questions.all() if include_private else form.questions.filter(is_public=True)
+            for question in question_qs:
                 answers.append(
                     {
+                        "private_access_granted": include_private,
                         "provider_id": provider_id,
                         "form_id": form.id,
                         "form_name": form.name,
@@ -129,4 +175,10 @@ class PublicFormDetailView(APIView):
             return Response({"detail": "invalid token"}, status=401)
         if not _authorize_provider_third(token, form.provider_id):
             return Response({"detail": "forbidden for third-party consultation"}, status=403)
-        return Response(ProviderFormPublicSerializer(form).data)
+        include_private = _can_view_private_data(token, form.provider_id)
+        return Response(
+            ProviderFormPublicSerializer(
+                form,
+                context={"include_private": include_private},
+            ).data
+        )

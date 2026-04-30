@@ -6,6 +6,7 @@ export default function App() {
   const [token, setToken] = useState(localStorage.getItem("provider_app_token") || "");
   const [sessionUser, setSessionUser] = useState(null);
   const [forms, setForms] = useState([]);
+  const [incomingSubmissions, setIncomingSubmissions] = useState([]);
   const [providers, setProviders] = useState([]);
   const [newProviderName, setNewProviderName] = useState("");
   const [error, setError] = useState(null);
@@ -32,8 +33,12 @@ export default function App() {
 
   const loadAppData = async (authToken) => {
     const tokenToUse = authToken || token;
-    const formsData = await api.forms(tokenToUse);
+    const [formsData, submissions] = await Promise.all([
+      api.forms(tokenToUse),
+      api.incomingSubmissions(tokenToUse),
+    ]);
     setForms(formsData);
+    setIncomingSubmissions(submissions);
     if (isProviderAdmin) {
       const providersData = await api.adminProviders(tokenToUse);
       setProviders(providersData);
@@ -88,10 +93,10 @@ export default function App() {
   };
 
   const loadConsultation = async () => {
-    if (!consultProviderId) return;
+    if (!consultProviderId || !token) return;
     setLoading(true);
     try {
-      const data = await api.publicFormsByProvider(consultProviderId);
+      const data = await api.publicFormsByProvider(consultProviderId, token);
       setForms(data);
       setError(null);
     } catch (e) {
@@ -106,6 +111,7 @@ export default function App() {
     setToken("");
     setSessionUser(null);
     setForms([]);
+    setIncomingSubmissions([]);
     setProviders([]);
     setError(null);
   };
@@ -265,6 +271,33 @@ export default function App() {
     }
   };
 
+  const processIncomingSubmission = async (submission, decision) => {
+    const providerId = Number(submission.submitee_entity_id);
+    const decisionNote = window.prompt("Decision note (optional)", "") ?? "";
+    setLoading(true);
+    try {
+      await api.decideIncomingSubmission(
+        submission.id,
+        {
+          provider_id: providerId,
+          decision,
+          decision_note: decisionNote,
+          decision_metadata: {
+            processed_by_ui: true,
+            submission_id: submission.id,
+          },
+        },
+        token
+      );
+      await loadAppData();
+      setError(null);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="provider-app">
       <header>
@@ -318,6 +351,38 @@ export default function App() {
                   <button onClick={logout}>Logout</button>
                 </div>
                 <p className="hint">App mode shows all questions (public and private).</p>
+                <section className="card">
+                  <h2>Incoming submissions</h2>
+                  <p className="hint">
+                    Requests where provider-app is the receiving entity (via subscription-app).
+                  </p>
+                  {incomingSubmissions.length === 0 ? (
+                    <p className="hint">No incoming submissions.</p>
+                  ) : (
+                    <ul>
+                      {incomingSubmissions.map((submission) => (
+                        <li key={submission.id}>
+                          #{submission.id} {submission.submitting_entity_type}:
+                          {submission.submitting_entity_id} -> {submission.submitee_entity_type}:
+                          {submission.submitee_entity_id} [{submission.status}]{" "}
+                          <button
+                            onClick={() => processIncomingSubmission(submission, "handled")}
+                            disabled={loading || submission.status !== "pending"}
+                          >
+                            Mark handled
+                          </button>{" "}
+                          <button
+                            className="danger"
+                            onClick={() => processIncomingSubmission(submission, "rejected")}
+                            disabled={loading || submission.status !== "pending"}
+                          >
+                            Reject
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
                 {isProviderAdmin ? (
                   <section className="card">
                     <h2>Provider administration</h2>
@@ -361,15 +426,16 @@ export default function App() {
           <section>
             <h2>Consultation (view-only)</h2>
             <p className="hint">
-              This mode calls the third surface and only displays public questions.
+              This mode uses provider-app app API and only displays public questions.
             </p>
+            {!token ? <p className="hint">Sign in first to use consultation mode.</p> : null}
             <div className="row">
               <input
                 placeholder="Provider ID"
                 value={consultProviderId}
                 onChange={(e) => setConsultProviderId(e.target.value)}
               />
-              <button onClick={loadConsultation} disabled={loading || !consultProviderId}>
+              <button onClick={loadConsultation} disabled={loading || !consultProviderId || !token}>
                 {loading ? "Loading..." : "Load public data"}
               </button>
             </div>

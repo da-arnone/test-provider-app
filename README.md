@@ -13,6 +13,16 @@ Provider management component with public/private question visibility.
 - App: `/api/provider/` (provider-user/admin; sees public + private questions)
 - Third: `/third/provider/` (consultation/view-only; only public questions)
 
+Incoming subscription submissions for provider processing:
+
+- `GET /api/provider/subscriptions/incoming/`
+  - Lists submissions where `submitee_entity_type="provider"` and `submitee_entity_id`
+    is one of the provider IDs authorized for the current token.
+- `POST /api/provider/subscriptions/incoming/<id>/decision/`
+  - Body: `{ "provider_id": <int>, "decision": "handled" | "rejected", "decision_note": "...", "decision_metadata": {...} }`
+  - provider-app owns this lifecycle action and delegates the cross-component update
+    to subscription-app `/third/subscription/requests/<id>/decision/`.
+
 Third-party consultation endpoints:
 
 - `GET /third/provider/providers/`
@@ -20,6 +30,14 @@ Third-party consultation endpoints:
 - `GET /third/provider/providers/<id>/forms/`
 - `GET /third/provider/providers/<id>/answers/`
 - `GET /third/provider/forms/<id>/`
+
+Private-data behavior for third-party consultation:
+
+- Default: only public questions/answers are returned.
+- If the caller token belongs to an `org-app` profile with a handled subscription
+  to the target provider, these endpoints also return private questions/answers.
+- Third-party responses expose `private_access_granted` so consumers can detect
+  whether private data is expected in the payload.
 
 ## Run backend
 
